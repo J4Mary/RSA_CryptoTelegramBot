@@ -1,3 +1,5 @@
+# coding=utf-8
+
 import telebot
 import rsa
 import config
@@ -33,33 +35,91 @@ def send_text(message):
 
     elif message.text.lower() == 'зашифровать сообщение':
         msg = bot.send_message(message.chat.id, 'Пришли мне открытый ключ того, кому ты хочешь отправить сообщение')
-        bot.register_next_step_handler(msg, Encryption.ask_key)
-        #encrypt(get_public_key, get_text)
+        bot.register_next_step_handler(msg, Encryption.ask_pubkey)
+
     elif message.text.lower() == 'расшифровать соообщение':
-        bot.send_sticker(message.chat.id, 'CAADAgADZgkAAnlc4gmfCor5YbYYRAI')
+        msg = bot.send_message(message.chat.id, 'Пришли мне свой закрытый ключ')
+        bot.register_next_step_handler(msg, Decryption.ask_privkey)
 
 
 class Encryption:
     @staticmethod
-    @bot.message_handler(content_types=['file'])
-    def ask_key(message):
-        file = bot.getFile(message.file[-1].file_id)
-        file.download('user_public.pem')
+    @bot.message_handler(content_types=['document'])
+    def ask_pubkey(message):
+        try:
+            # Скачивание файла в папку
+            file_info = bot.get_file(message.document.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+
+            src = file_info.file_path
+            with open(src, 'wb') as new_file:
+                new_file.write(downloaded_file)
+
+            bot.reply_to(message, "Успешно сохранено")
+        except Exception as e:
+            bot.reply_to(message, e)
         msg = bot.send_message(message.chat.id, 'Пришли мне текст, который ты хочешь зашифровать')
-        bot.register_next_step_handler(msg, Encryption.ask_message)
+        bot.register_next_step_handler(msg, Encryption.ask_message, file_info)
 
     @staticmethod
     @bot.message_handler(content_types=['text'])
-    def ask_message(message):
-        with open('user_public.pem', mode='rb') as public_file:
+    def ask_message(message, file_info):
+        with open(file_info.file_path, mode='rb') as public_file:
             keydata = public_file.read()
             public_key = rsa.PublicKey.load_pkcs1(keydata, 'PEM')
         en_message = rsa.encrypt(message.text.encode('utf8'), public_key)
+        encryption = open('crypto.txt', mode='wb')
+        encryption.write(en_message)
+        encryption = open('crypto.txt', 'rb')
         bot.send_message(message.chat.id, 'Зашифрованное сообщение:')
-        bot.send_message(message.chat.id, en_message)
+        bot.send_document(message.chat.id, encryption)
 
 
+class Decryption:
+    @staticmethod
+    @bot.message_handler(content_types=['document'])
+    def ask_privkey(message):
+        try:
+            # Скачивание файла в папку
+            file_info = bot.get_file(message.document.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
 
+            src = file_info.file_path
+            with open(src, 'wb') as new_file:
+                new_file.write(downloaded_file)
+
+            bot.reply_to(message, "Успешно сохранено")
+        except Exception as e:
+            bot.reply_to(message, e)
+        msg = bot.send_message(message.chat.id, 'Пришли мне криптограмму')
+        bot.register_next_step_handler(msg, Decryption.ask_crypto, file_info)
+
+    @staticmethod
+    @bot.message_handler(content_types=['document'])
+    def ask_crypto(message, file_info):
+        try:
+            # Скачивание файла в папку
+            file_crypto = bot.get_file(message.document.file_id)
+            downloaded_file = bot.download_file(file_crypto.file_path)
+
+            cr = file_crypto.file_path
+            with open(cr, 'wb') as new_file:
+                new_file.write(downloaded_file)
+
+            bot.reply_to(message, "Успешно сохранено")
+        except Exception as e:
+            bot.reply_to(message, e)
+
+        with open(file_info.file_path, mode='rb') as private_file:
+            keydata = private_file.read()
+            private_key = rsa.PrivateKey.load_pkcs1(keydata, 'PEM')
+
+        with open(file_crypto.file_path, mode='rb') as crypto_file:
+            crypto = crypto_file.read()
+        decryption = rsa.decrypt(crypto, private_key)
+
+        bot.send_message(message.chat.id, 'Расшифрованное сообщение:')
+        bot.send_message(message.chat.id, decryption.decode('utf8'))
 
 
 bot.polling(none_stop=True)
